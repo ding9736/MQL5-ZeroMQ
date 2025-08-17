@@ -1,60 +1,64 @@
 //+--------------------------------------------------------------------+
-//| Module:      Lang/MqlIPC.mqh                                       |
-//| Description: Provides classes for Inter-Process Communication (IPC)|
-//|              and synchronization using MQL5 Global Variables.      |
-//|              Includes synchronization primitives like critical     |
-//|              sections and a powerful reference-counted shared      |
-//|              handle mechanism (`GlobalHandle`).                    |
+//|    Lang/MqlIPC.mqh                                                 |
 //+--------------------------------------------------------------------+
+
 #ifndef MQL_LANG_IPC_MQH
 #define MQL_LANG_IPC_MQH
 
 #property strict
 
 //+------------------------------------------------------------------+
-//| GlobalVariable: A static wrapper for MQL5's global var functions.|
-//+------------------------------------------------------------------+
 class GlobalVariable
 {
 public:
+
    static int        total()
    {
       return GlobalVariablesTotal();
    }
+
    static string     name(int index)
    {
       return GlobalVariableName(index);
    }
+
    static void       flush()
    {
       GlobalVariablesFlush();
    }
 
+
    static bool       exists(string name)
    {
       return GlobalVariableCheck(name);
    }
+
    static datetime   lastAccess(string name)
    {
       return GlobalVariableTime(name);
    }
 
+
    static bool       makeTemp(string name)
    {
       return GlobalVariableTemp(name);
    }
+
    static double     get(string name)
    {
       return GlobalVariableGet(name);
    }
+
    static bool       get(string name,double &value)
    {
       return (bool)GlobalVariableGet(name,value);
    }
+
    static bool       set(string name,double value)
    {
       return (bool)GlobalVariableSet(name,value);
    }
+
    static bool       setOn(string name,double value,double check)
    {
       return GlobalVariableSetOnCondition(name,value,check);
@@ -70,16 +74,15 @@ public:
    }
 };
 
-//+------------------------------------------------------------------+
-//| TempVar: RAII wrapper for a temporary global variable.           |
-//| Automatically deletes the variable upon destruction.             |
+
 //+------------------------------------------------------------------+
 class TempVar
 {
 private:
-   string            m_name;
-   bool              m_owned;
+   string            m_name;   // Name of the temporary global variable
+   bool              m_owned;  // True if this object created and owns the variable
 public:
+
    TempVar(string name,bool create=false):m_name(name),m_owned(create)
    {
       if(create)
@@ -87,6 +90,7 @@ public:
          GlobalVariable::makeTemp(name);
       }
    }
+
    ~TempVar()
    {
       if(m_owned && isValid())
@@ -99,35 +103,33 @@ public:
    {
       return GlobalVariable::exists(m_name);
    }
+
    string            getName() const
    {
       return m_name;
    }
+
    bool              set(double value)
    {
       return GlobalVariable::set(m_name,value);
    }
+
    double            get() const
    {
       return GlobalVariable::get(m_name);
    }
+
    bool              setOn(double value,double check)
    {
       return GlobalVariable::setOn(m_name,value,check);
    }
+
    datetime          lastAccess() const
    {
       return GlobalVariable::lastAccess(m_name);
    }
 };
 
-//+------------------------------------------------------------------+
-//| GlobalSpinCounter: A counter based on a Global Variable.         |
-//| @warning This class uses a spin-lock on MQL Global Variables     |
-//| (which involves file I/O) and is NOT high-performance.           |
-//| It can cause high CPU usage under contention. Use only for       |
-//| low-frequency, inter-program coordination, not for high-speed    |
-//| counting or frequent locking.                                    |
 //+------------------------------------------------------------------+
 class GlobalSpinCounter: public TempVar
 {
@@ -157,23 +159,18 @@ long GlobalSpinCounter::increment(long by)
 }
 
 //+------------------------------------------------------------------+
-//| GlobalSpinSemaphore: A semaphore implementation using a Global Var.|
-//| @warning Like GlobalSpinCounter, this class uses a spin-lock     |
-//| via file I/O and is NOT suitable for high-frequency or           |
-//| performance-critical locking. High contention will lead to       |
-//| significant CPU load. Use sparingly for coarse-grained           |
-//| inter-program synchronization.                                   |
-//+------------------------------------------------------------------+
 class GlobalSpinSemaphore
 {
 private:
    TempVar           m_var;
 public:
+
    GlobalSpinSemaphore(string name,long initial=0);
    bool              isValid() const
    {
       return m_var.isValid();
    }
+
    bool              acquire();
    void              release();
 };
@@ -213,20 +210,19 @@ void GlobalSpinSemaphore::release(void)
 }
 
 //+------------------------------------------------------------------+
-//| CriticalSection: A mutual exclusion lock. More efficient than    |
-//| a semaphore for simple locking as it uses a "sleep-wait" loop.   |
-//+------------------------------------------------------------------+
 class CriticalSection
 {
 private:
-   const string      m_name;
+   const string      m_name;      
 public:
+
    CriticalSection(string name):m_name(name) {}
 
    bool              isValid() const
    {
       return m_name!=NULL;
    }
+
    string            getName() const
    {
       return m_name;
@@ -236,8 +232,9 @@ public:
    {
       GlobalVariable::remove(m_name);
       while(!GlobalVariable::makeTemp(m_name) && !IsStopped())
-         Sleep(100); // Sleep-wait is less CPU intensive than a spin-lock.
+         Sleep(100);
    }
+
    bool              tryEnter()
    {
       return GlobalVariable::makeTemp(m_name);
@@ -248,39 +245,34 @@ public:
    }
 };
 
-//+------------------------------------------------------------------+
-//| HandleManager: Interface for custom handle creation/destruction. |
-//+------------------------------------------------------------------+
 template<typename T>
 interface HandleManager
 {
-   T         create();
-   void      destroy(T);
+   T         create();              // Creates and returns a new handle.
+   void      destroy(T);            // Destroys a given handle.
 };
 
-//+------------------------------------------------------------------+
-//| GlobalHandle: A reference-counted, globally shared handle/pointer. |
-//| This is the cornerstone for sharing resources like a ZmqContext   |
-//| across multiple EAs/scripts in the same terminal instance.       |
-//+------------------------------------------------------------------+
-template<typename T,typename HM>
+template<typename T,typename HM>    // T is the handle type, HM is the HandleManager implementation
 class GlobalHandle
 {
 private:
-   CriticalSection   m_cs;
-   string            m_refName;
-   string            m_counterName;
+   CriticalSection   m_cs;          // Critical section for protecting shared state
+   string            m_refName;     // Name of the global variable storing the shared handle reference
+   string            m_counterName; // Name of the global variable storing the reference count
 protected:
-   T                 m_ref;
-   HandleManager<T>  *m_hm;
+   T                 m_ref;         // The actual shared handle
+   HM                *m_hm;         // Pointer to the HandleManager implementation
+
 public:
    GlobalHandle(string sharedKey=NULL):m_cs(sharedKey)
    {
-      m_refName=m_cs.getName()+"_Ref";
-      m_counterName=m_cs.getName()+"_Count";
+      m_refName = m_cs.getName()+"_Ref";
+      m_counterName = m_cs.getName()+"_Count";
       m_hm = new HM;
       if(!m_cs.isValid())
+      {
          m_ref = m_hm.create();
+      }
       else
       {
          m_cs.enter();

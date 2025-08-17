@@ -6,116 +6,95 @@
 
 #include "../Lang/Native.mqh"
 
-// The low-level C struct that the MQL5 wrapper will manage.
+
 struct zmq_msg_t
 {
-   uchar _[64]; // Internal opaque buffer, must match libzmq's definition.
+   uchar _[64];
 };
 
-// --- DLL Imports for ZMQ Message Functions ---
 #import "libzmq.dll"
-int  zmq_msg_init(zmq_msg_t &msg);
-int  zmq_msg_init_size(zmq_msg_t &msg, ulong size);
-int  zmq_msg_close(zmq_msg_t &msg);
-int  zmq_msg_move(zmq_msg_t &dest, zmq_msg_t &src);
-int  zmq_msg_copy(zmq_msg_t &dest, zmq_msg_t &src);
-long zmq_msg_data(zmq_msg_t &msg);
-int  zmq_msg_size(zmq_msg_t &msg);
-int  zmq_msg_more(zmq_msg_t &msg);
-int  zmq_msg_get(zmq_msg_t &msg, int property);
-int  zmq_msg_set(zmq_msg_t &msg, int property, int optval);
-long zmq_msg_gets(zmq_msg_t &msg, const uchar &property[]);
+int  zmq_msg_init(zmq_msg_t &msg);                           // Initializes an empty message.
+int  zmq_msg_init_size(zmq_msg_t &msg, ulong size);          // Initializes a message with a specific size.
+int  zmq_msg_close(zmq_msg_t &msg);                          // Closes and frees a message.
+int  zmq_msg_move(zmq_msg_t &dest, zmq_msg_t &src);          // Moves message content (destroys src).
+int  zmq_msg_copy(zmq_msg_t &dest, zmq_msg_t &src);          // Copies message content.
+long zmq_msg_data(zmq_msg_t &msg);                           // Returns pointer to message data.
+int  zmq_msg_size(zmq_msg_t &msg);                           // Returns size of message data.
+int  zmq_msg_more(zmq_msg_t &msg);                           // Checks if more parts are expected (multi-part message).
+int  zmq_msg_get(zmq_msg_t &msg, int property);              // Gets a message property (e.g., identity).
+int  zmq_msg_set(zmq_msg_t &msg, int property, int optval);  // Sets a message property.
+long zmq_msg_gets(zmq_msg_t &msg, const uchar &property[]);  // Gets a message string property (e.g., User-Id for ZAP).
 #import
 
-//+------------------------------------------------------------------+
-//| A RAII-style wrapper for a ZMQ message (zmq_msg_t).              |
-//| It ensures resources are always properly initialized and released.|
-//+------------------------------------------------------------------+
-struct ZmqMsg : zmq_msg_t
+
+struct ZmqMsg : zmq_msg_t 
 {
 private:
-   // [NEW] Tracks if the message was initialized successfully.
-   bool m_is_valid;
+   bool m_is_valid; 
 
-   // Private helper to get the data pointer.
    long internal_data_ptr()
    {
       if(!m_is_valid) return 0;
-      return zmq_msg_data(this);
+      return zmq_msg_data(this); 
    }
 
 public:
-   // --- Constructors ---
 
-   // Default constructor for an empty message.
    ZmqMsg()
    {
-      // [OPTIMIZED] Set validity based on init result, remove logging.
       m_is_valid = (zmq_msg_init(this) == 0);
    }
-
-   // Creates a message with a pre-allocated buffer of 'size' bytes.
    ZmqMsg(const ulong size)
    {
       m_is_valid = (zmq_msg_init_size(this, size) == 0);
    }
 
-   // Creates a message from an MQL string (converted to UTF-8).
    ZmqMsg(const string data, const bool null_terminated = false)
    {
-      m_is_valid = false; // Assume failure until success
+      m_is_valid = false;
       uchar buf[];
-      StringToUtf8(data, buf, null_terminated);
+      StringToUtf8(data, buf, null_terminated); 
       const ulong len = (ulong)ArraySize(buf);
       if(zmq_msg_init_size(this, len) == 0)
       {
-         // Only if init succeeds, set valid and copy data
          m_is_valid = true;
-         setData(buf);
+         setData(buf); 
       }
    }
 
-   // Destructor: ensures resources are released.
    ~ZmqMsg()
    {
       if(m_is_valid)
       {
          zmq_msg_close(this);
+         m_is_valid = false; 
       }
    }
 
-   // --- State Validation ---
-
-   // @brief  Checks if the message object was initialized correctly.
-   // @return true if the message is valid and safe to use.
    bool isValid() const
    {
       return m_is_valid;
    }
 
-   // --- Rebuild Methods (for reusing an existing ZmqMsg object) ---
-
    bool rebuild()
    {
-      if(m_is_valid) zmq_msg_close(this);
-      m_is_valid = (zmq_msg_init(this) == 0);
+      if(m_is_valid) zmq_msg_close(this); 
+      m_is_valid = (zmq_msg_init(this) == 0); 
       return m_is_valid;
    }
 
    bool rebuild(const ulong size)
    {
-      if(m_is_valid) zmq_msg_close(this);
-      m_is_valid = (zmq_msg_init_size(this, size) == 0);
+      if(m_is_valid) zmq_msg_close(this); 
+      m_is_valid = (zmq_msg_init_size(this, size) == 0); 
       return m_is_valid;
    }
 
    bool rebuild(const string data, const bool null_terminated = false)
    {
-      if(!rebuild()) return false;
-      return setData(data, null_terminated);
+      if(!rebuild()) return false; 
+      return setData(data, null_terminated); 
    }
-
-   // --- Data Access & Properties ---
 
    ulong size()
    {
@@ -129,30 +108,29 @@ public:
       return zmq_msg_more(this) == 1;
    }
 
-   // --- Data Manipulation ---
-
    void   getData(uchar &bytes[])
    {
       if(!m_is_valid)
       {
-         ArrayResize(bytes, 0);
+         ArrayResize(bytes, 0); 
          return;
       }
       const ulong msg_size = size();
       if(msg_size == 0)
       {
-         ArrayResize(bytes, 0);
+         ArrayResize(bytes, 0); 
          return;
       }
       const long src_ptr = internal_data_ptr();
-      if(src_ptr == 0)
+      if(src_ptr == 0) 
       {
          ArrayResize(bytes, 0);
          return;
       }
-      ArrayResize(bytes, (int)msg_size);
-      RtlMoveMemory(bytes, src_ptr, msg_size);
+      ArrayResize(bytes, (int)msg_size); 
+      RtlMoveMemory(bytes, src_ptr, msg_size); 
    }
+
 
    string getData()
    {
@@ -161,7 +139,7 @@ public:
       if(msg_size == 0) return "";
       const long src_ptr = internal_data_ptr();
       if(src_ptr == 0) return "";
-      return StringFromUtf8Pointer(src_ptr, (int)msg_size);
+      return StringFromUtf8Pointer(src_ptr, (int)msg_size); 
    }
 
    bool   setData(const uchar &bytes[])
@@ -169,11 +147,10 @@ public:
       if(!m_is_valid) return false;
       const long dest_ptr = internal_data_ptr();
       if(dest_ptr == 0) return false;
-      const ulong msg_capacity = size();
+      const ulong msg_capacity = size(); 
       ulong bytes_to_copy = (ulong)ArraySize(bytes);
       if(bytes_to_copy > msg_capacity)
       {
-         // Truncate data if it doesn't fit, this is expected behavior.
          bytes_to_copy = msg_capacity;
       }
       if(bytes_to_copy > 0)
@@ -185,18 +162,18 @@ public:
    {
       if(!m_is_valid) return false;
       uchar buf[];
-      StringToUtf8(data, buf, null_terminated);
-      return setData(buf);
+      StringToUtf8(data, buf, null_terminated); 
+      return setData(buf); 
    }
-
+   
    string getMeta(const string property_name)
    {
       if(!m_is_valid) return "";
       uchar prop_buf[];
-      StringToUtf8(property_name, prop_buf, true);
-      const long ref = zmq_msg_gets(this, prop_buf);
-      if(ref == 0) return "";
-      return StringFromUtf8Pointer(ref);
+      StringToUtf8(property_name, prop_buf, true); 
+      const long ref = zmq_msg_gets(this, prop_buf); 
+      if(ref == 0) return ""; 
+      return StringFromUtf8Pointer(ref); 
    }
 };
 

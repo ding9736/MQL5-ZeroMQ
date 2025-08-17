@@ -7,9 +7,6 @@
 #include "../Lang/Native.mqh"
 #include "../Common/Constants.mqh"
 
-// --- DLL Imports ---
-
-// Core imports for zmq_get/setsockopt with various data types
 #import "libzmq.dll"
 int zmq_setsockopt(long s, int option, const uchar &optval[], ulong optvallen);
 int zmq_getsockopt(const long s, int option, uchar &optval[], ulong &optvallen);
@@ -21,27 +18,22 @@ int zmq_setsockopt(long s, int option, const int &optval, ulong optvallen);
 int zmq_getsockopt(const long s, int option, int &optval, ulong &optvallen);
 int zmq_setsockopt(long s, int option, const uint &optval, ulong optvallen);
 int zmq_getsockopt(const long s, int option, uint &optval, ulong &optvallen);
-
-// Added necessary import for zmq_errno(), which is used in getStringOption
 int zmq_errno();
 #import
 
-//+------------------------------------------------------------------+
-//| Base class providing a high-level API for ZMQ socket options.    |
+
 //+------------------------------------------------------------------+
 class ZmqSocketOptions
 {
 protected:
-   long              m_ref; // Raw handle to the ZMQ socket
+   long              m_ref;
 
    ZmqSocketOptions(long socket_ref) : m_ref(socket_ref) {}
 
-   //--- Low-level generic option wrappers (for various types) ---
    bool setOption(ENUM_ZMQ_SOCKET_OPTION option, const uchar &value[], ulong len)
    {
       return zmq_setsockopt(m_ref, (int)option, value, len) == 0;
    }
-
    bool getOption(ENUM_ZMQ_SOCKET_OPTION option, uchar &value[], ulong &len) const
    {
       return zmq_getsockopt(m_ref, (int)option, value, len) == 0;
@@ -52,22 +44,16 @@ protected:
    {
       return zmq_setsockopt(m_ref, (int)option, value, sizeof(T)) == 0;
    }
-
    template<typename T>
    bool getOption(ENUM_ZMQ_SOCKET_OPTION option, T &value) const
    {
       ulong s = sizeof(T);
       return zmq_getsockopt(m_ref, (int)option, value, s) == 0;
    }
-
-   //--- Specialized helpers for string-based options ---
    bool   setStringOption(ENUM_ZMQ_SOCKET_OPTION option, string value, bool null_terminate = true);
-
-   // Default parameter is only specified here in the declaration.
    bool   getStringOption(ENUM_ZMQ_SOCKET_OPTION option, string &value, ulong buffer_size = 256) const;
 
 public:
-   // --- MACRO-BASED API GENERATION FOR ALL SOCKET OPTIONS ---
 
 #define SOCKOPT_ACCESSOR(TYPE, NAME, MACRO)                                      \
    bool get##NAME(TYPE &value) const { return getOption(MACRO, value); }         \
@@ -93,16 +79,65 @@ public:
 #define SOCKOPT_BYTES_ACCESSOR(NAME, MACRO, READ_BUF_SIZE)                        \
    bool set##NAME(const uchar &value[]) { return setOption(MACRO, value, (ulong)ArraySize(value)); } \
    bool set##NAME(string value)         { return setStringOption(MACRO, value, false); } \
-   bool get##NAME(uchar &value[]) const { ulong len = (ulong)READ_BUF_SIZE; ArrayResize(value, (int)len); bool res = getOption(MACRO, value, len); if(res) ArrayResize(value, (int)len); else ArrayResize(value,0); return res; } \
+   bool get##NAME(uchar &value[]) const { \
+      ulong required_len = 0; \
+      uchar dummy_check_buf[]; ArrayResize(dummy_check_buf, 1); \
+      ulong dummy_len = 1; \
+      int res_len_check = zmq_getsockopt(m_ref, (int)MACRO, dummy_check_buf, dummy_len); \
+      if (res_len_check == 0) { required_len = dummy_len; } \
+      else { \
+         if (zmq_errno() == ZMQ_EMSGSIZE) { required_len = dummy_len; } \
+         else { ArrayResize(value, 0); return false; } \
+      } \
+      if (required_len == 0) { ArrayResize(value, 0); return true; } \
+      uchar data_buffer[]; \
+      ArrayResize(data_buffer, (int)required_len); \
+      ulong actual_data_len_rcv = required_len; \
+      bool res = (zmq_getsockopt(m_ref, (int)MACRO, data_buffer, actual_data_len_rcv) == 0); \
+      if(res) { \
+         ArrayCopy(value, data_buffer, 0, 0, (int)actual_data_len_rcv); \
+         return true; \
+      } else { \
+         ArrayResize(value,0); \
+         return false; \
+      } \
+   } \
    bool get##NAME(string &value) const  { return getStringOption(MACRO, value, READ_BUF_SIZE); }
 
-#define SOCKOPT_CURVE_KEY_ACCESSOR(KEYTYPE, MACRO)                               \
-   bool getCurve##KEYTYPE##Key(uchar &key[]) const { ulong len=32; ArrayResize(key,32); return getOption(MACRO, key, len); } \
-   bool setCurve##KEYTYPE##Key(const uchar &key[]) { if(ArraySize(key)!=32) return false; return setOption(MACRO, key, 32); } \
-   bool getCurve##KEYTYPE##Key(string &key_z85) const { uchar buf[41]; ulong len=41; bool res=getOption(MACRO, buf, len); if(res) key_z85 = StringFromUtf8(buf); return res; } \
-   bool setCurve##KEYTYPE##Key(string key_z85) { return setStringOption(MACRO, key_z85, true); }
 
-   // --- PUBLIC API: All ZMQ Socket Options ---
+#define SOCKOPT_CURVE_KEY_ACCESSOR(KEYTYPE, MACRO)                               \
+   bool getCurve##KEYTYPE##Key(uchar &key[]) const { \
+      uchar temp_key_buf[];  \
+      ulong len = 32; \
+      ArrayResize(temp_key_buf, (int)len); \
+      bool res = (zmq_getsockopt(m_ref, (int)MACRO, temp_key_buf, len) == 0); \
+      if (res) { ArrayCopy(key, temp_key_buf, 0, 0, (int)len); } \
+      else { ArrayResize(key,0); } \
+      return res; \
+   } \
+   bool setCurve##KEYTYPE##Key(const uchar &key[]) { \
+      if(ArraySize(key)!=32) return false; \
+      return setOption(MACRO, key, 32); \
+   } \
+   bool getCurve##KEYTYPE##Key(string &key_z85) const { \
+      uchar z85_buf[];  \
+      ulong len_z85 = 41;  \
+      ArrayResize(z85_buf, (int)len_z85); \
+      bool res = (zmq_getsockopt(m_ref, (int)MACRO, z85_buf, len_z85) == 0); \
+      if(res) { \
+         ArrayResize(z85_buf, (int)len_z85); \
+         key_z85 = StringFromUtf8(z85_buf); \
+         return true; \
+      } else { \
+         key_z85 = ""; \
+         return false; \
+      } \
+   } \
+   bool setCurve##KEYTYPE##Key(string key_z85) { \
+      return setStringOption(MACRO, key_z85, true); \
+   }
+
+   // --- Common Socket Option Definitions ---
    SOCKOPT_GETTER(int, Type, ZMQ_OPT_TYPE)
    SOCKOPT_ACCESSOR(ulong, Affinity, ZMQ_OPT_AFFINITY)
    SOCKOPT_ACCESSOR(int, Backlog, ZMQ_OPT_BACKLOG)
@@ -115,7 +150,6 @@ public:
    SOCKOPT_STRING_ACCESSOR(PlainUsername, ZMQ_OPT_PLAIN_USERNAME, 256)
    SOCKOPT_STRING_ACCESSOR(PlainPassword, ZMQ_OPT_PLAIN_PASSWORD, 256)
    SOCKOPT_BOOL_ACCESSOR(PlainServer, ZMQ_OPT_PLAIN_SERVER)
-   // [FIXED] Corrected casing from GssApi to GSSAPI to match Constants.mqh
    SOCKOPT_BOOL_ACCESSOR(GssApiPlainText, ZMQ_OPT_GSSAPI_PLAINTEXT)
    SOCKOPT_BOOL_ACCESSOR(GssApiServer, ZMQ_OPT_GSSAPI_SERVER)
    SOCKOPT_STRING_ACCESSOR(GssApiPrincipal, ZMQ_OPT_GSSAPI_PRINCIPAL, 256)
@@ -169,7 +203,7 @@ public:
    SOCKOPT_BOOL_ACCESSOR(InvertMatching, ZMQ_OPT_INVERT_MATCHING)
    SOCKOPT_STRING_ACCESSOR(ZapDomain, ZMQ_OPT_ZAP_DOMAIN, 256)
 
-   //--- Convenience methods for common SUB/XSUB socket operations ---
+   // Convenience methods for subscribe/unsubscribe
    bool subscribe(string channel)
    {
       return setSubscribe(channel);
@@ -181,8 +215,6 @@ public:
 };
 
 //+------------------------------------------------------------------+
-//| Sets a socket option using a string value.                       |
-//+------------------------------------------------------------------+
 bool ZmqSocketOptions::setStringOption(ENUM_ZMQ_SOCKET_OPTION option, const string value, bool null_terminate)
 {
    uchar buf[];
@@ -191,31 +223,44 @@ bool ZmqSocketOptions::setStringOption(ENUM_ZMQ_SOCKET_OPTION option, const stri
 }
 
 //+------------------------------------------------------------------+
-//| [OPTIMIZED] Gets a socket option that is a string.               |
-//+------------------------------------------------------------------+
 bool ZmqSocketOptions::getStringOption(ENUM_ZMQ_SOCKET_OPTION option, string &value, ulong buffer_size) const
 {
-   uchar dummy[];
    ulong required_size = 0;
-   if(zmq_getsockopt(m_ref, (int)option, dummy, required_size) != 0 && zmq_errno() != ZMQ_EMSGSIZE)
+   uchar dummy_check_buf[];
+   ArrayResize(dummy_check_buf, 1);
+   ulong dummy_len = 1;
+   int res_len_check = zmq_getsockopt(m_ref, (int)option, dummy_check_buf, dummy_len);
+   if (res_len_check == 0)
    {
-      value = "";
-      return false;
+      required_size = dummy_len;
    }
-   if(required_size <= 0)
+   else
+   {
+      if (zmq_errno() == ZMQ_EMSGSIZE)
+      {
+         required_size = dummy_len;
+      }
+      else
+      {
+         value = "";
+         return false;
+      }
+   }
+   if (required_size == 0)
    {
       value = "";
       return true;
    }
    uchar buf[];
-   if(ArrayResize(buf, (int)required_size) < (int)required_size)
+   if(ArrayResize(buf, (int)required_size + 1) < (int)required_size + 1)
    {
       value = "";
       return false;
    }
-   if(zmq_getsockopt(m_ref, (int)option, buf, required_size) == 0)
+   ulong actual_len_received = required_size;
+   if(zmq_getsockopt(m_ref, (int)option, buf, actual_len_received) == 0)
    {
-      ArrayResize(buf, (int)required_size);
+      ArrayResize(buf, (int)actual_len_received);
       value = StringFromUtf8(buf);
       return true;
    }
