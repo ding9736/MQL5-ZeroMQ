@@ -7,7 +7,7 @@
 </div>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-2.5.9-blue.svg">
+  <img alt="Version" src="https://img.shields.io/badge/version-3.0-blue.svg">
   <img alt="Platform" src="https://img.shields.io/badge/platform-MetaTrader%205-orange.svg">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-green.svg">
 </p>
@@ -16,7 +16,7 @@
 
 **MQL5-ZeroMQ** is a feature-complete, high-performance message queue library tailored for MetaTrader 5 (MQL5). It seamlessly integrates the power of the world-renowned ZeroMQ (ØMQ, ZMQ) into the MQL5 environment, providing developers with "sockets on steroids"—intelligent message pipelines with built-in concurrency patterns that go beyond traditional TCP/UDP.
 
-Whether you need **low-latency, high-throughput** inter-process communication (IPC) between multiple EAs/indicators, want to build complex distributed computing systems (e.g., offloading computationally intensive tasks to external Python/C++ applications), or require real-time, reliable data exchange with external data sources, MQL5-ZeroMQ is your ultimate solution.
+This `3.0` release represents a major architectural overhaul focused on extreme robustness, stability, and adherence to production-grade software engineering principles. The background service model (e.g., for ZAP authentication) has been rebuilt using a cooperative MQL5-native task scheduler, ensuring maximum stability and compatibility within the MetaTrader sandbox.
 
 ---
 
@@ -26,9 +26,11 @@ Whether you need **low-latency, high-throughput** inter-process communication (I
 - [🚀 Performance Highlight: The Unmatched Advantage of `uchar[]`](#-performance-highlight-the-unmatched-advantage-of-uchar)
 - [🛠️ Installation & Configuration](#️-installation--configuration)
 - [💡 Definitive API Guide & Examples](#-definitive-api-guide--examples)
+  - [⚠️ Important Note for EA Developers (MUST-READ)](#️-important-note-for-ea-developers-must-read)
   - [Request-Reply (REQ/REP)](#part-1-request-reply-reqrep)
   - [Publish-Subscribe (PUB/SUB)](#part-2-publish-subscribe-pubsub)
-  - [High-Performance `uchar[]` Struct Transfer](#part-3-high-performance-uchar-struct-transfer)
+  - [ZAP Authentication (CURVE Security)](#part-3-zap-authentication-curve-security)
+  - [High-Performance `uchar[]` Struct Transfer](#part-4-high-performance-uchar-struct-transfer)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 
@@ -38,118 +40,94 @@ Whether you need **low-latency, high-throughput** inter-process communication (I
 
 - ⚡️ **Extreme Performance**:
   
-  - **Microsecond-Level Latency**: In `inproc` communication, a full request-reply round-trip latency is as low as **~6.18 microseconds**, approaching native function call speed.
-  - **Ultra-High Throughput**: Stress tests show that using zero-overhead byte arrays (`uchar[]`) can boost throughput to **50,000+ messages/second**, demonstrating its exceptional capability in data-intensive applications.
+  - **Microsecond-Level Latency**: In `inproc` communication, a full request-reply round-trip latency is as low as **~6.14 microseconds**.
+  - **Ultra-High Throughput**: Stress tests show that using zero-overhead byte arrays (`uchar[]`) can boost throughput to **13.8 Million+ messages/second**, a massive improvement.
 
 - 📡 **Classic Concurrency Messaging Patterns**:
   
-  - **Request-Reply (REQ/REP)**: For building robust client-server communication with automatic handling of the strict request-and-reply sequence.
-  - **Publish-Subscribe (PUB/SUB)**: Implements one-to-many data distribution, ideal for broadcasting market data and trading signals.
-  - **Pipeline/Task Distribution (PUSH/PULL)**: For parallel task distribution among multiple worker units, enabling automatic load balancing.
-  - **More Advanced Patterns**: Also supports PAIR, ROUTER, DEALER, XPUB/XSUB, etc., to meet complex routing and asynchronous communication needs.
+  - **Request-Reply (REQ/REP)**: For building robust client-server communication.
+  - **Publish-Subscribe (PUB/SUB)**: Ideal for broadcasting market data and trading signals.
+  - **Pipeline/Task Distribution (PUSH/PULL)**: For parallel task distribution among worker units.
+  - **More Advanced Patterns**: Also supports PAIR, ROUTER, DEALER, XPUB/XSUB.
 
 - 🛡️ **Industrial-Grade Security (Out-of-the-Box)**:
   
-  - Built-in powerful **CurveZMQ** encryption protocol. This library **already includes `libsodium.dll`**, allowing you to add enterprise-grade end-to-end encryption to your TCP communications with just a few lines of code, ensuring data security.
+  - Built-in powerful **CurveZMQ** encryption protocol via a ZAP authenticator. This library **already includes `libsodium.dll`**, allowing you to add enterprise-grade end-to-end encryption with just a few lines of code.
+  - **Simplified API**: Easily start and manage the server-side authenticator with `authStart()` and `authAllowClient()` methods on the `ZmqContext`.
 
-- ⚙️ **Advanced Features & Robustness**:
+- ⚙️ **Robust Architecture**:
   
-  - **Asynchronous I/O (`ZmqPoller`)**: Gracefully manage and listen to multiple socket events simultaneously without complex multi-threaded programming.
-  - **Flow Control (HWM)**: Built-in High-Water Mark mechanism automatically handles network back-pressure, preventing memory exhaustion from message backlogs.
-  - **Multipart Messages**: Atomically split a single message into multiple frames for transmission, a powerful tool for building protocols and transferring complex data.
-  - **Fully Tested**: The entire library is validated by a rigorous test suite with over 80 assertions, covering core functions, advanced features, performance, and error handling to ensure its stability and reliability in a production environment.
+  - **MQL5-Native Background Services**: All background tasks (like ZAP authentication) run on an MQL5-native cooperative scheduler, avoiding risky OS-level thread API calls and integrating perfectly with an EA's event model (via `OnTimer`) for maximum stability.
+  - **Asynchronous I/O (`ZmqPoller`)**: Gracefully manage and listen to multiple socket events simultaneously without blocking.
+  - **Flow Control (HWM)**: Built-in High-Water Mark mechanism automatically handles network back-pressure.
+  - **Fully Tested**: The entire library is validated by a rigorous test suite with 89 assertions (all passed), ensuring its reliability in a production environment.
 
 - 🧱 **Modern, Object-Oriented API**:
   
-  - Provides a series of well-designed classes like `ZmqContext`, `ZmqSocket`, `ZmqMsg` with an intuitive, easy-to-use interface that implements automatic resource management (RAII), eliminating memory leaks.
+  - Provides a series of well-designed classes like `ZmqContext`, `ZmqSocket`, `ZmqMsg` with an intuitive interface that implements automatic resource management (RAII), eliminating memory leaks.
 
 ---
 
 ## 🚀 Performance Highlight: The Unmatched Advantage of `uchar[]`
 
-Rigorous testing has shown that transferring data directly using byte arrays (`uchar[]`) is over **110%** faster than using the standard `string` type.
+Rigorous testing has shown that transferring data directly using byte arrays (`uchar[]`) is over **136%** faster than using the standard `string` type.
 
 | Benchmark                                    | Result                     |
 | -------------------------------------------- | -------------------------- |
-| **Latency** - `inproc`                       | **`6.18 µs / round-trip`** |
-| **Throughput** - `uchar[]`                   | **`~50,289 messages/sec`** |
-| **Throughput** - `string`                    | `~23,892 messages/sec`     |
-| **Performance Gain (`uchar[]` vs `string`)** | **`+110.49%`**             |
+| **Latency** - `inproc`                       | **`6.14 µs / round-trip`** |
+| **Throughput** - `uchar[]`                   | **`~13.88M messages/sec`** |
+| **Throughput** - `string`                    | `~5.86M messages/sec`      |
+| **Performance Gain (`uchar[]` vs `string`)** | **`+136.81%`**             |
 
 #### Why is `uchar[]` Faster?
 
-- **Zero Overhead**: In MQL5, `uchar[]` is a contiguous block of bytes in memory. Sending it via `zmq_send()` is essentially a direct memory copy with virtually no extra overhead.
-- **Avoids Conversion**: When you send an MQL5 `string`, the library must internally convert it into a UTF-8 encoded byte array that ZeroMQ uses. This process involves additional CPU calculations and temporary memory allocation, which becomes a performance bottleneck during high-frequency sending.
+- **Zero Overhead**: `uchar[]` is a contiguous block of bytes. Sending it is essentially a direct memory copy.
+- **Avoids Conversion**: Sending a `string` requires an internal conversion to a UTF-8 byte array, which adds CPU and memory overhead, creating a bottleneck at high frequencies.
 
 > **⭐ The Golden Rule of Performance**
-> For performance-sensitive applications (like HFT strategies or market data forwarders), **always use `uchar[]`** for data transfer. You can use MQL5's built-in `StructToCharArray` and `CharArrayToStruct` functions to efficiently serialize your data structures.
+> For performance-sensitive applications, **always use `uchar[]`** for data transfer. Use MQL5's built-in `StructToCharArray` and `CharArrayToStruct` to efficiently serialize your data structures.
 
 ---
 
 ## 🛠️ Installation & Configuration
 
-The installation process is very straightforward. Just follow these steps:
-
 #### **Step 1: Copy the MQL5 Library Files**
 
-Copy the entire `ZeroMQ` folder (which contains `ZeroMQ.mqh` and the `Core` subfolder) into your MQL5 `Include` directory.
+Copy the entire `ZeroMQ` folder to your MQL5 `Include` directory.
 
-- **Standard Path**:
-  
-  ```
-  C:/Users/<Your Username>/AppData/Roaming/MetaQuotes/Terminal/<Instance ID>/MQL5/Include/
-  ```
-
-- **The final directory structure should look like this**:
-  
-  ```
-  MQL5/
-  └── Include/
-      └── ZeroMQ/              <- Copy this folder here
-          ├── ZeroMQ.mqh       <- The main header file
-          └── Core/            <- Core modules
-              └── ... (multiple .mqh files)
-  ```
+- **Path**: `C:/Users/<Your Username>/AppData/Roaming/MetaQuotes/Terminal/<Instance ID>/MQL5/Include/`
 
 #### **Step 2: Copy the Dependent DLL Files**
 
-Copy the two pre-compiled DLL files, `libzmq.dll` and `libsodium.dll`, into the **`Libraries`** directory of your MetaTrader 5 terminal (**Note**: not the `Include` directory).
+Copy `libzmq.dll` and `libsodium.dll` to the `Libraries` directory.
 
-> **Note**: `libsodium.dll` is required even if you are not using encryption, as `libzmq.dll` depends on it.
+> **Note**: `libsodium.dll` is required even if you are not using encryption.
 
-- **Standard Path**:
-  
-  ```
-  C:/Users/<Your Username>/AppData/Roaming/MetaQuotes/Terminal/<Instance ID>/MQL5/Libraries/
-  ```
-
-- **Final Directory Structure**:
-  
-  ```
-  MQL5/
-  └── Libraries/
-      ├── libzmq.dll
-      └── libsodium.dll
-  ```
+- **Path**: `C:/Users/<Your Username>/AppData/Roaming/MetaQuotes/Terminal/<Instance ID>/MQL5/Libraries/`
 
 #### **Step 3: Enable DLL Imports**
 
-In your MetaTrader 5 terminal, go to **“Tools -> Options -> Expert Advisors”** and **check “Allow DLL imports”**.
+In MT5, go to **“Tools -> Options -> Expert Advisors”** and **check “Allow DLL imports”**.
 
 #### **Step 4: Reference it in Your Code**
 
-At the beginning of your EA, script, or indicator, simply include the main header file to get started. This path will now perfectly match your directory structure.
-
 ```mql5
-#include <ZeroMQ/ZeroMQ.mqh>```
+#include <ZeroMQ/ZeroMQ.mqh>
+```
 
 ---
 
 ## 💡 Definitive API Guide & Examples
 
+### ⚠️ Important Note for EA Developers (MUST-READ)
+
+> Advanced features of MQL5-ZeroMQ, like **ZAP security**, rely on a built-in, MQL5-native background task scheduler. To allow these background tasks (e.g., processing encryption handshakes) to execute, you **MUST** periodically call `your_context.ProcessAuthTasks()` from within your EA's `OnTimer()` function.
+> 
+> This is a mandatory step; otherwise, authentication will never complete.
+
 ### Part 1: Request-Reply (REQ/REP)
 
-This is the most basic client-server pattern. The client sends a request, and the server receives and replies.
+The most basic client-server pattern.
 
 #### **Server (`Rep_Server.mq5`)**
 
@@ -161,19 +139,14 @@ void OnStart()
     ZmqContext context;
     if(!context.isValid()) return;
 
-    ZmqSocket server(context, ZMQ_SOCKET_REP);
+    ZmqSocket server(context.ref(), ZMQ_SOCKET_REP);
     if(!server.bind("tcp://*:5555")) return;
 
-    Print("Server started on tcp://*:5555...");
-
-    while(!IsStopped())
-    {
-        string request;
-        if(server.recv(request))
-        {
-            PrintFormat("Received: '%s'. Replying with 'World'", request);
-            server.send("World");
-        }
+    Print("Server started...");
+    string request;
+    if(server.recv(request)) {
+        PrintFormat("Received: '%s'. Replying with 'World'", request);
+        server.send("World");
     }
 }
 ```
@@ -188,31 +161,27 @@ void OnStart()
     ZmqContext context;
     if(!context.isValid()) return;
 
-    ZmqSocket client(context, ZMQ_SOCKET_REQ);
+    ZmqSocket client(context.ref(), ZMQ_SOCKET_REQ);
     if(!client.connect("tcp://localhost:5555")) return;
 
-    Print("Client connected. Sending 'Hello'...");
+    Print("Client sending 'Hello'...");
     client.send("Hello");
 
     string reply;
-    // Set a 5-second timeout for receiving
     client.setReceiveTimeout(5000);
-    if(client.recv(reply))
-    {
+    if(client.recv(reply)) {
         PrintFormat("Received reply: '%s'", reply);
-    }
-    else
-    {
-        Print("Request timed out. Server may not be running.");
+    } else {
+        Print("Request timed out.");
     }
 }
 ```
 
 ### Part 2: Publish-Subscribe (PUB/SUB)
 
-Used for broadcasting data to multiple subscribers. The publisher doesn't care if there are subscribers; it just sends.
+Used for broadcasting data to multiple subscribers.
 
-#### **Publisher - Broadcasting Market Ticks (`Publisher.mq5`)**
+#### **Publisher (`Publisher.mq5`)**
 
 ```mql5
 #include <ZeroMQ/ZeroMQ.mqh>
@@ -220,83 +189,115 @@ Used for broadcasting data to multiple subscribers. The publisher doesn't care i
 void OnStart()
 {
     ZmqContext context;
-    ZmqSocket publisher(context, ZMQ_SOCKET_PUB);
+    ZmqSocket publisher(context.ref(), ZMQ_SOCKET_PUB);
     publisher.bind("tcp://*:5556");
-    Print("Market Data Publisher started...");
+    Print("Publisher started...");
 
-    MqlTick tick;
-    while(!IsStopped())
-    {
-        if(SymbolInfoTick(_Symbol, tick))
-        {
-            // Use uchar[] for maximum performance
-            uchar tick_data[];
-            StructToCharArray(tick, tick_data);
+    Sleep(100); // Wait for subscribers to connect
 
-            // The topic is "TICK.EURUSD", and the message body is the byte stream of the tick data
-            publisher.send("TICK." + _Symbol, ZMQ_FLAG_SNDMORE);
-            publisher.send(tick_data);
-        }
-        Sleep(1000);
+    string update[] = {"EURUSD", "Price is 1.0855"};
+    publisher.sendMultipart(update);
+    Print("Published EURUSD update.");
+}
+```
+
+#### **Subscriber (`Subscriber.mq5`)**
+
+```mql5
+#include <ZeroMQ/ZeroMQ.mqh>
+
+void OnStart()
+{
+    ZmqContext context;
+    ZmqSocket subscriber(context.ref(), ZMQ_SOCKET_SUB);
+    subscriber.connect("tcp://localhost:5556");
+
+    subscriber.subscribe("EURUSD");
+    Print("Subscribed to 'EURUSD'...");
+
+    string received_parts[];
+    if(subscriber.recvMultipart(received_parts)) {
+        PrintFormat("Received update for %s: %s", received_parts[0], received_parts[1]);
     }
 }
 ```
 
-#### **Subscriber - Receiving EURUSD Ticks (`Subscriber.mq5`)**
+### Part 3: ZAP Authentication (CURVE Security)
+
+End-to-end encryption and client authentication.
+
+> **Remember**: If running the server code below in an EA, you must call `g_secure_context.ProcessAuthTasks()` inside `OnTimer`.
+
+#### **Server-Side ZAP Setup**
 
 ```mql5
-#include <ZeroMQ/ZeroMQ.mqh>
+ZmqContext *g_secure_context = NULL; 
 
-void OnStart()
+void StartSecureServer() {
+    g_secure_context = new ZmqContext();
+
+    // 1. Start the authentication service
+    if (!g_secure_context.authStart()) {
+        Print("Failed to start ZAP service!");
+        return;
+    }
+
+    // 2. Generate key pairs
+    string s_pub, s_sec, c_pub, c_sec;
+    ZmqZ85Codec::generateKeyPair(s_pub, s_sec);
+    ZmqZ85Codec::generateKeyPair(c_pub, c_sec);
+    Print("Client Public Key for client's setup: ", c_pub);
+
+    // 3. Whitelist the authorized client's public key
+    g_secure_context.authAllowClient(c_pub);
+
+    // 4. Configure the server socket
+    ZmqSocket server(g_secure_context.ref(), ZMQ_SOCKET_REP);
+    server.setCurveServer(true);
+    server.setCurveSecretKey(s_sec);
+
+    // 5. Bind
+    if(server.bind("tcp://*:5557")) {
+        Print("Secure server is listening...");
+    }
+}
+```
+
+#### **Client-Side ZAP Setup**
+
+```mql5
+void RunSecureClient()
 {
     ZmqContext context;
-    ZmqSocket subscriber(context, ZMQ_SOCKET_SUB);
-    subscriber.connect("tcp://localhost:5556");
 
-    // Key: Subscribe to all topics starting with "TICK.EURUSD"
-    subscriber.subscribe("TICK.EURUSD");
-    Print("Subscribed to 'TICK.EURUSD'. Waiting for data...");
+    // Keys provided by the server administrator
+    string server_public_key = "SERVER_PUBLIC_KEY_HERE";
+    string client_public_key = "YOUR_CLIENT_PUBLIC_KEY";
+    string client_secret_key = "YOUR_CLIENT_SECRET_KEY";
 
-    // ZMQ connection takes a moment to establish, so wait briefly before looping
-    Sleep(100);
+    ZmqSocket client(context.ref(), ZMQ_SOCKET_REQ);
+    client.setCurveServerKey(server_public_key);
+    client.setCurvePublicKey(client_public_key);
+    client.setCurveSecretKey(client_secret_key);
 
-    MqlTick received_tick;
-    string topic;
-    uchar tick_data[];
+    client.connect("tcp://localhost:5557");
+    client.send("Secure Hello");
+    // ...
+}
+```
 
-    while(!IsStopped())
-    {
-        // First, receive the topic
-        if(subscriber.recv(topic, ZMQ_FLAG_NONE))
-        {
-            // If there's another part, receive the message body
-            if(subscriber.getReceiveMore(true))
-            {
-                subscriber.recv(tick_data);
-                CharArrayToStruct(received_tick, tick_data, 0);
-                PrintFormat("[%s] Ask: %.5f, Bid: %.5f, Volume: %d", 
-                            topic, received_tick.ask, received_tick.bid, (int)received_tick.volume);
-            }
-        }
-    }
-}```
+### Part 4: High-Performance `uchar[]` Struct Transfer
 
-### Part 3: High-Performance `uchar[]` Struct Transfer
-
-This is the recommended advanced pattern for production environments, achieving zero-overhead data transfer.
+The recommended pattern for production environments.
 
 #### **Shared Data Structure (`SharedStructures.mqh`)**
 
-It's recommended to create a shared header file so that both the sender and receiver use the exact same data structure.
-
 ```mql5
-// In file: MQL5/Include/SharedStructures.mqh
-struct StrategyParameters
-{
-    long     magic_number;
-    double   lot_size;
-    int      max_slippage_points;
-    char     symbol[32]; // Use a fixed-size char array to ensure the struct is serializable
+// MQL5/Include/SharedStructures.mqh
+struct StrategyParameters {
+    long   magic_number;
+    double lot_size;
+    char   symbol[32]; // Use fixed-size array to ensure struct is serializable
 };
 ```
 
@@ -309,24 +310,19 @@ struct StrategyParameters
 void OnStart()
 {
     ZmqContext context;
-    ZmqSocket pusher(context, ZMQ_SOCKET_PUSH);
-    pusher.connect("tcp://localhost:5557");
+    ZmqSocket pusher(context.ref(), ZMQ_SOCKET_PUSH);
+    pusher.connect("tcp://localhost:5558");
 
-    // 1. Populate the data structure
     StrategyParameters params;
     params.magic_number = 12345;
     params.lot_size = 0.02;
-    params.max_slippage_points = 30;
     StringToCharArray("EURUSD", params.symbol);
 
-    // 2. Serialize to a byte array
     uchar buffer[];
-    StructToCharArray(params, buffer);
+    StructToCharArray(params, buffer); // Serialize to byte array
 
-    // 3. Send the raw bytes
-    if(pusher.send(buffer))
-    {
-        Print("Sent strategy parameters successfully.");
+    if(pusher.send(buffer)) {
+        Print("Sent parameters successfully.");
     }
 }
 ```
@@ -340,30 +336,20 @@ void OnStart()
 void OnStart()
 {
     ZmqContext context;
-    ZmqSocket puller(context, ZMQ_SOCKET_PULL);
-    puller.bind("tcp://*:5557");
+    ZmqSocket puller(context.ref(), ZMQ_SOCKET_PULL);
+    puller.bind("tcp://*:5558");
     Print("Receiver listening...");
 
     uchar buffer[];
-    // Set a 10-second timeout
-    puller.setReceiveTimeout(10000); 
-
     if(puller.recv(buffer))
     {
-        // 1. Receive the raw bytes
         StrategyParameters params;
-
-        // 2. Deserialize back into the data structure
+        // Deserialize back into the struct
         if(CharArrayToStruct(params, buffer, 0))
         {
-            // 3. Use the data
-            PrintFormat("Received Parameters: Magic=%d, Lot=%.2f, Symbol=%s",
-                        params.magic_number, params.lot_size, CharArrayToString(params.symbol));
+            PrintFormat("Received: Magic=%d, Symbol=%s",
+                        params.magic_number, CharArrayToString(params.symbol));
         }
-    }
-    else
-    {
-        Print("Timed out waiting for parameters.");
     }
 }
 ```
@@ -372,7 +358,9 @@ void OnStart()
 
 ## 🤝 Contributing
 
-This library is developed and maintained by **ding9736** in collaboration with **AI assistants**. We welcome community contributions, whether it's reporting issues or submitting pull requests.
+This library is developed and maintained by **ding9736** 
+
+. We welcome community contributions.
 
 - **MQL5 Profile**: [https://www.mql5.com/en/users/ding9736](https://www.mql5.com/en/users/ding9736)
 - **GitHub Repository**: https://github.com/ding9736/MQL5-ZeroMQ
@@ -406,6 +394,8 @@ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+</details>

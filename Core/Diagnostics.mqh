@@ -9,7 +9,6 @@
 #ifdef ZMQ_DEBUG_MODE
    #define ZMQ_LOG_DEBUG(message) PrintFormat("[ZMQ-Debug] in %s:%d | %s", __FILE__, __LINE__, message)
 #else
-
    #define ZMQ_LOG_DEBUG(message)
 #endif
 
